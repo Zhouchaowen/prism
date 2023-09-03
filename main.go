@@ -100,7 +100,7 @@ func main() {
 			fmt.Println()
 			fmt.Printf("package type: %+v\n", task.Type)
 			fmt.Printf("------------------------------------\n")
-			ParseHttp(task.Type, task.Data[:task.DataLen])
+			ParseHttp(task.Data[:task.DataLen])
 		}
 	}()
 
