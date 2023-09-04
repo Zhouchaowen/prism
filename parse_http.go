@@ -2,12 +2,10 @@ package main
 
 import (
 	"bytes"
-	"compress/gzip"
 	"errors"
 	"fmt"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
-	"io"
 	"strconv"
 	"strings"
 )
@@ -20,7 +18,7 @@ const (
 var mp = map[uint32]*MergeBuilder{}
 var ackMp = map[uint32]uint32{}
 
-func ParseHttp(data []byte) error {
+func ParseHttp(saveChan chan *MergeBuilder, data []byte) error {
 	httpData, err := ExtractFlyHttp(data)
 	if err != nil {
 		return err
@@ -28,10 +26,10 @@ func ParseHttp(data []byte) error {
 
 	if httpData.Data.Type == IsRequest {
 		if Debug {
-			fmt.Println()
 			fmt.Printf("[HTTP]	Request    Line: %+v\n", httpData.Data.RequestLine.String())
 			fmt.Printf("[HTTP]	Request Headers: %+v\n", httpData.Data.Headers)
 			fmt.Printf("[HTTP]	Request    Body: %+v\n", string(httpData.Data.Body))
+			fmt.Println()
 		}
 
 		var mb = MergeBuilder{}
@@ -43,12 +41,12 @@ func ParseHttp(data []byte) error {
 
 	if httpData.Data.Type == IsResponse { // 防止不是成对出现
 		if Debug {
-			fmt.Println()
 			fmt.Printf("[HTTP]	Response    Line: %+v\n", httpData.Data.ResponseLine.String())
 			fmt.Printf("[HTTP]	Response Headers: %+v\n", httpData.Data.Headers)
 			if Verbose {
 				fmt.Printf("[HTTP]	Response    Body: %+v\n", httpData.Data.Body)
 			}
+			fmt.Println()
 		}
 
 		if v, ok := mp[httpData.Seq]; ok {
@@ -59,7 +57,8 @@ func ParseHttp(data []byte) error {
 			v.Data = append(v.Data, httpData)
 
 			if v.ContentLength >= v.MaxBody {
-				v.MergeReqAndRes()
+				//v.MergeReqAndRes()
+				saveChan <- v
 				delete(mp, httpData.Seq)
 			} else {
 				// response 第一次返回，后续可能被截断，只保存第一次ack的seq
@@ -76,7 +75,8 @@ func ParseHttp(data []byte) error {
 			mb.Data = append(mb.Data, httpData)
 
 			if mb.ContentLength >= mb.MaxBody {
-				mb.MergeReqAndRes()
+				//mb.MergeReqAndRes()
+				saveChan <- mb
 				delete(mp, httpData.Seq)
 			}
 			return nil
@@ -277,78 +277,4 @@ func (r *ResponseLine) parseFirstLine(data string) {
 
 func (r *ResponseLine) isErr() error {
 	return r.err
-}
-
-type MergeBuilder struct {
-	Seq           uint32    `json:"seq"`
-	Ack           uint32    `json:"ack"`
-	ContentLength int       `json:"content_length"`
-	MaxBody       int       `json:"max_body"`
-	Data          []FlyHttp `json:"data"`
-}
-
-func (m MergeBuilder) MergeReqAndRes() {
-	var responseLine string
-	var responseHeaders map[string]string
-	var responseBody []byte
-	fmt.Println()
-
-	for _, v := range m.Data {
-		if v.Data.Type == IsRequest {
-			fmt.Printf("request: %+v\n", v.Data.RequestLine)
-			printFormatHeader(v.Data.Headers)
-			fmt.Printf("request param: %+v\n", string(v.Data.Body))
-			continue
-		}
-
-		if v.Data.Type == IsResponse {
-			if v.Data.ResponseLine.Status != 0 {
-				responseLine = v.Data.ResponseLine.String()
-				responseHeaders = v.Data.Headers
-			}
-			responseBody = append(responseBody, v.Data.Body...)
-		}
-	}
-	fmt.Printf("response: %+v\n", responseLine)
-	printFormatHeader(responseHeaders)
-	if v, ok := responseHeaders["Content-Type"]; ok && !strings.Contains(v, "text/html") {
-		if encoding, ok := responseHeaders["Content-Encoding"]; ok && encoding == "gzip" {
-			ret, err := GZIPDe(responseBody)
-			if err != nil && err.Error() != "unexpected EOF" {
-				fmt.Printf("decode err: %s\n", err.Error())
-			}
-			if contentType, ok := responseHeaders["Content-Type"]; ok && (strings.Contains(contentType, "text/plain") || strings.Contains(contentType, "application/json")) {
-				fmt.Printf("response body: %+v\n", string(ret))
-			}
-		} else {
-			if contentType, ok := responseHeaders["Content-Type"]; ok && (strings.Contains(contentType, "text/plain") || strings.Contains(contentType, "application/json")) {
-				fmt.Printf("response body: %+v\n", string(responseBody))
-			}
-		}
-	}
-}
-
-// GZIPDe gzip解密
-func GZIPDe(in []byte) ([]byte, error) {
-	for i := 0; i < len(in) && len(in) > 3; i++ {
-		if in[i] == 31 && in[i+1] == 139 && in[i+2] == 8 {
-			in = in[i:]
-			break
-		}
-	}
-
-	reader, err := gzip.NewReader(bytes.NewReader(in))
-	if err != nil {
-		var out []byte
-		return out, err
-	}
-	defer reader.Close()
-	return io.ReadAll(reader)
-}
-
-func printFormatHeader(headers map[string]string) {
-	fmt.Printf("headers:\n")
-	for k, v := range headers {
-		fmt.Printf("\t%s: %s\n", k, v)
-	}
 }
