@@ -28,6 +28,7 @@ func ParseHttp(data []byte) error {
 
 	if httpData.Data.Type == IsRequest {
 		if Debug {
+			fmt.Println()
 			fmt.Printf("[HTTP]	Request    Line: %+v\n", httpData.Data.RequestLine.String())
 			fmt.Printf("[HTTP]	Request Headers: %+v\n", httpData.Data.Headers)
 			fmt.Printf("[HTTP]	Request    Body: %+v\n", string(httpData.Data.Body))
@@ -42,14 +43,12 @@ func ParseHttp(data []byte) error {
 
 	if httpData.Data.Type == IsResponse { // 防止不是成对出现
 		if Debug {
+			fmt.Println()
 			fmt.Printf("[HTTP]	Response    Line: %+v\n", httpData.Data.ResponseLine.String())
 			fmt.Printf("[HTTP]	Response Headers: %+v\n", httpData.Data.Headers)
-			//fmt.Printf("[HTTP]	Response    Body: %+v\n", httpData.Data.Body)
-		}
-
-		if v, ok := httpData.Data.Headers["Content-Type"]; !ok || v == "text/html" || v == "multipart/form-data" {
-			fmt.Printf("skip text/html and multipart/form-data\n")
-			return nil
+			if Verbose {
+				fmt.Printf("[HTTP]	Response    Body: %+v\n", httpData.Data.Body)
+			}
 		}
 
 		if v, ok := mp[httpData.Seq]; ok {
@@ -57,7 +56,6 @@ func ParseHttp(data []byte) error {
 			v.Ack = httpData.Ack
 			v.ContentLength += len(httpData.Data.Body)
 			v.MaxBody, _ = strconv.Atoi(httpData.Data.Headers["Content-Length"])
-			fmt.Printf("MaxBody: %d\n", v.MaxBody)
 			v.Data = append(v.Data, httpData)
 
 			if v.ContentLength >= v.MaxBody {
@@ -85,6 +83,7 @@ func ParseHttp(data []byte) error {
 		}
 
 	}
+
 	return nil
 }
 
@@ -135,8 +134,6 @@ func ExtractFlyHttp(data []byte) (FlyHttp, error) {
 
 	httpData := ParseHttpData(data)
 
-	fmt.Printf("response:%+v\n", httpData.Body)
-
 	return FlyHttp{
 		Seq:  tcp.Seq,
 		Ack:  tcp.Ack,
@@ -155,7 +152,9 @@ func ParseHttpData(data []byte) HttpData {
 	if len(parts) > 1 {
 		bodyPart = parts[1]
 	} else {
-		fmt.Printf("is truncation\n")
+		if Debug {
+			fmt.Printf("is truncation\n")
+		}
 		// 被截断了
 		return HttpData{
 			IsTruncation: true,
@@ -292,13 +291,13 @@ func (m MergeBuilder) MergeReqAndRes() {
 	var responseLine string
 	var responseHeaders map[string]string
 	var responseBody []byte
+	fmt.Println()
+
 	for _, v := range m.Data {
 		if v.Data.Type == IsRequest {
 			fmt.Printf("request: %+v\n", v.Data.RequestLine)
-			fmt.Printf("header: %+v\n", v.Data.Headers)
-			if header, ok := v.Data.Headers["Content-Type"]; ok && header != "multipart/form-data" {
-				fmt.Printf("request param: %+v\n", string(v.Data.Body))
-			}
+			printFormatHeader(v.Data.Headers)
+			fmt.Printf("request param: %+v\n", string(v.Data.Body))
 			continue
 		}
 
@@ -311,24 +310,33 @@ func (m MergeBuilder) MergeReqAndRes() {
 		}
 	}
 	fmt.Printf("response: %+v\n", responseLine)
-	fmt.Printf("header: %+v\n", responseHeaders)
-	if v, ok := responseHeaders["Content-Type"]; ok && v != "text/html" {
+	printFormatHeader(responseHeaders)
+	if v, ok := responseHeaders["Content-Type"]; ok && !strings.Contains(v, "text/html") {
 		if encoding, ok := responseHeaders["Content-Encoding"]; ok && encoding == "gzip" {
-			// 剔除[0:4]的协议头
-			ret, err := GZIPDe(responseBody[4:])
+			ret, err := GZIPDe(responseBody)
 			if err != nil && err.Error() != "unexpected EOF" {
 				fmt.Printf("decode err: %s\n", err.Error())
-				return
 			}
-			fmt.Printf("response body: %+v\n", string(ret))
+			if contentType, ok := responseHeaders["Content-Type"]; ok && (strings.Contains(contentType, "text/plain") || strings.Contains(contentType, "application/json")) {
+				fmt.Printf("response body: %+v\n", string(ret))
+			}
 		} else {
-			fmt.Printf("response body: %+v\n", string(responseBody))
+			if contentType, ok := responseHeaders["Content-Type"]; ok && (strings.Contains(contentType, "text/plain") || strings.Contains(contentType, "application/json")) {
+				fmt.Printf("response body: %+v\n", string(responseBody))
+			}
 		}
 	}
 }
 
 // GZIPDe gzip解密
 func GZIPDe(in []byte) ([]byte, error) {
+	for i := 0; i < len(in) && len(in) > 3; i++ {
+		if in[i] == 31 && in[i+1] == 139 && in[i+2] == 8 {
+			in = in[i:]
+			break
+		}
+	}
+
 	reader, err := gzip.NewReader(bytes.NewReader(in))
 	if err != nil {
 		var out []byte
@@ -336,4 +344,11 @@ func GZIPDe(in []byte) ([]byte, error) {
 	}
 	defer reader.Close()
 	return io.ReadAll(reader)
+}
+
+func printFormatHeader(headers map[string]string) {
+	fmt.Printf("headers:\n")
+	for k, v := range headers {
+		fmt.Printf("\t%s: %s\n", k, v)
+	}
 }

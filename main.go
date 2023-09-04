@@ -24,11 +24,13 @@ import (
 var (
 	InterfaceName string
 	Debug         bool
+	Verbose       bool
 )
 
 func init() {
 	flag.StringVar(&InterfaceName, "n", "lo", "a network interface name")
-	flag.BoolVar(&Debug, "d", false, "output more detailed information")
+	flag.BoolVar(&Debug, "d", false, "output debug information")
+	flag.BoolVar(&Verbose, "v", false, "output more detailed information")
 }
 
 func main() {
@@ -97,9 +99,6 @@ func main() {
 
 	go func() {
 		for task := range queueTask {
-			fmt.Println()
-			fmt.Printf("package type: %+v\n", task.Type)
-			fmt.Printf("------------------------------------\n")
 			ParseHttp(task.Data[:task.DataLen])
 		}
 	}()
