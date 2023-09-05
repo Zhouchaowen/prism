@@ -15,11 +15,11 @@ const (
 	IsResponse = 2
 )
 
-var mp = map[uint32]*MergeBuilder{}
+var mergeMp = map[uint32]*MergeBuilder{}
 var ackMp = map[uint32]uint32{}
 
-func ParseHttp(saveChan chan *MergeBuilder, data []byte) error {
-	httpData, err := ExtractFlyHttp(data)
+func parseHttp(saveChan chan *MergeBuilder, data []byte) error {
+	httpData, err := extractFlyHttp(data)
 	if err != nil {
 		return err
 	}
@@ -32,11 +32,19 @@ func ParseHttp(saveChan chan *MergeBuilder, data []byte) error {
 			fmt.Println()
 		}
 
-		var mb = MergeBuilder{}
-		mb.Seq = httpData.Seq
-		mb.Ack = httpData.Ack
+		mb := MergeBuilder{
+			Seq:     httpData.Seq,
+			Ack:     httpData.Ack,
+			SrcMAC:  httpData.SrcMAC,
+			DstMAC:  httpData.DstMAC,
+			SrcIP:   httpData.SrcIP,
+			DstIP:   httpData.DstIP,
+			SrcPort: httpData.SrcPort,
+			DstPort: httpData.DstPort,
+		}
 		mb.Data = append(mb.Data, httpData)
-		mp[httpData.Ack] = &mb
+
+		mergeMp[httpData.Ack] = &mb
 	}
 
 	if httpData.Data.Type == IsResponse { // 防止不是成对出现
@@ -49,7 +57,7 @@ func ParseHttp(saveChan chan *MergeBuilder, data []byte) error {
 			fmt.Println()
 		}
 
-		if v, ok := mp[httpData.Seq]; ok {
+		if v, ok := mergeMp[httpData.Seq]; ok {
 			v.Seq = httpData.Seq
 			v.Ack = httpData.Ack
 			v.ContentLength += len(httpData.Data.Body)
@@ -57,9 +65,9 @@ func ParseHttp(saveChan chan *MergeBuilder, data []byte) error {
 			v.Data = append(v.Data, httpData)
 
 			if v.ContentLength >= v.MaxBody {
-				//v.MergeReqAndRes()
 				saveChan <- v
-				delete(mp, httpData.Seq)
+				fmt.Printf("mergeMp[httpData.Seq] model: %+v %+v %+v %+v\n", v.SrcIP, v.DstIP, v.SrcPort, v.DstPort)
+				delete(mergeMp, httpData.Seq)
 			} else {
 				// response 第一次返回，后续可能被截断，只保存第一次ack的seq
 				ackMp[httpData.Ack] = httpData.Seq
@@ -68,16 +76,16 @@ func ParseHttp(saveChan chan *MergeBuilder, data []byte) error {
 		}
 
 		if v, ok := ackMp[httpData.Ack]; ok {
-			var mb = mp[v]
+			var mb = mergeMp[v]
 			mb.Seq = httpData.Seq
 			mb.Ack = httpData.Ack
 			mb.ContentLength += len(httpData.Data.Body)
 			mb.Data = append(mb.Data, httpData)
 
 			if mb.ContentLength >= mb.MaxBody {
-				//mb.MergeReqAndRes()
 				saveChan <- mb
-				delete(mp, httpData.Seq)
+				fmt.Printf("ackMp[httpData.Ack] model: %+v %+v %+v %+v\n", mb.SrcIP, mb.DstPort, mb.SrcPort, mb.DstPort)
+				delete(mergeMp, httpData.Seq)
 			}
 			return nil
 		}
@@ -87,7 +95,7 @@ func ParseHttp(saveChan chan *MergeBuilder, data []byte) error {
 	return nil
 }
 
-func ExtractFlyHttp(data []byte) (FlyHttp, error) {
+func extractFlyHttp(data []byte) (FlyHttp, error) {
 	eth := &layers.Ethernet{}
 	ipv4 := &layers.IPv4{}
 	stack := []gopacket.DecodingLayer{eth, ipv4}
@@ -132,16 +140,22 @@ func ExtractFlyHttp(data []byte) (FlyHttp, error) {
 		fmt.Printf("[TCP]      Padding: %+v\n", tcp.Padding)
 	}
 
-	httpData := ParseHttpData(data)
+	httpData := parseHttpData(data)
 
 	return FlyHttp{
-		Seq:  tcp.Seq,
-		Ack:  tcp.Ack,
-		Data: httpData,
+		SrcMAC:  eth.SrcMAC.String(),
+		DstMAC:  eth.DstMAC.String(),
+		SrcIP:   ipv4.SrcIP.String(),
+		DstIP:   ipv4.DstIP.String(),
+		SrcPort: tcp.SrcPort.String(),
+		DstPort: tcp.DstPort.String(),
+		Seq:     tcp.Seq,
+		Ack:     tcp.Ack,
+		Data:    httpData,
 	}, nil
 }
 
-func ParseHttpData(data []byte) HttpData {
+func parseHttpData(data []byte) HttpData {
 	// 将二进制数据转换为字符串
 	rawData := string(data)
 
@@ -176,7 +190,7 @@ func ParseHttpData(data []byte) HttpData {
 		}
 	}
 	var ret = HttpData{
-		Type:    RequestOrResponse(firstLine),
+		Type:    requestOrResponse(firstLine),
 		Headers: headers,
 		Body:    bytes.NewBufferString(bodyPart).Bytes(),
 	}
@@ -189,7 +203,7 @@ func ParseHttpData(data []byte) HttpData {
 	return ret
 }
 
-func RequestOrResponse(FirstLine string) int {
+func requestOrResponse(FirstLine string) int {
 	lines := strings.Split(FirstLine, " ")
 	// 肯定是截断数据
 	if len(lines) > 3 {
@@ -204,9 +218,15 @@ func RequestOrResponse(FirstLine string) int {
 }
 
 type FlyHttp struct {
-	Seq  uint32   `json:"seq"`
-	Ack  uint32   `json:"ack"`
-	Data HttpData `json:"data"`
+	SrcMAC  string   `json:"request_src_mac"`
+	DstMAC  string   `json:"request_dst_mac"`
+	SrcIP   string   `json:"request_src_ip"`
+	DstIP   string   `json:"request_dst_ip"`
+	SrcPort string   `json:"request_src_port"`
+	DstPort string   `json:"request_dst_port"`
+	Seq     uint32   `json:"seq"`
+	Ack     uint32   `json:"ack"`
+	Data    HttpData `json:"data"`
 }
 
 type HttpData struct {

@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-func SaveHttpData(db *leveldb.DB, mbChan <-chan *MergeBuilder) {
+func saveHttpData(db *leveldb.DB, mbChan <-chan *MergeBuilder) {
 	for mb := range mbChan {
 		md := mb.MergeReqAndRes()
 		if !strings.Contains(md.ResponseContextType, "text/plain") && !strings.Contains(md.ResponseContextType, "application/json") {
@@ -31,6 +31,12 @@ func SaveHttpData(db *leveldb.DB, mbChan <-chan *MergeBuilder) {
 }
 
 type MergeBuilder struct {
+	SrcMAC        string    `json:"src_mac"`
+	DstMAC        string    `json:"dst_mac"`
+	SrcIP         string    `json:"src_ip"`
+	DstIP         string    `json:"dst_ip"`
+	SrcPort       string    `json:"src_port"`
+	DstPort       string    `json:"dst_port"`
 	Seq           uint32    `json:"seq"`
 	Ack           uint32    `json:"ack"`
 	ContentLength int       `json:"content_length"`
@@ -49,24 +55,31 @@ func (m MergeBuilder) MergeReqAndRes() model {
 	for _, v := range m.Data {
 		if v.Data.Type == IsRequest {
 			fmt.Printf("request: %+v\n", v.Data.RequestLine)
-			printFormatHeader(v.Data.Headers)
-			fmt.Printf("request param: %+v\n", string(v.Data.Body))
+			if Debug {
+				printFormatHeader(v.Data.Headers)
+				fmt.Printf("request param: %+v\n", string(v.Data.Body))
+			}
 
+			md.RequestSrcMAC = v.SrcMAC
+			md.RequestDstMAC = v.DstMAC
+			md.RequestSrcIP = v.SrcIP
+			md.RequestDstIP = v.DstIP
+			md.RequestSrcPort = v.SrcPort
+			md.RequestDstPort = v.DstPort
 			urls, err := url.Parse(v.Data.RequestLine.URN)
 			if err != nil {
-				fmt.Printf("url.Parse", err.Error())
+				fmt.Printf("url.Parse error %+v\n", err.Error())
 				continue
 			}
 
-			fmt.Println(urls.Path)
-			fmt.Println(urls.RawQuery)
 			Parma, _ := url.ParseQuery(urls.RawQuery)
-			fmt.Println(Parma)
+			md.RequestMethod = v.Data.RequestLine.Method
 			md.RequestURL = urls.Path
 			md.RequestParma = Parma
 			md.RequestHeaders = v.Data.Headers
 			md.RequestContentType = v.Data.Headers["Content-Type"]
-			md.RequestBody = v.Data.Body
+			md.RequestBody = string(v.Data.Body)
+
 			continue
 		}
 
@@ -82,9 +95,11 @@ func (m MergeBuilder) MergeReqAndRes() model {
 
 	md.ResponseStatus = responseLine.Status
 	md.ResponseContextType = responseHeaders["Content-Type"]
-
-	fmt.Printf("response: %+v\n", responseLine.String())
-	printFormatHeader(responseHeaders)
+	md.Tag = []string{responseHeaders["X-Forwarded-For"]}
+	if Debug {
+		fmt.Printf("response: %+v\n", responseLine.String())
+		printFormatHeader(responseHeaders)
+	}
 	if v, ok := responseHeaders["Content-Type"]; ok && !strings.Contains(v, "text/html") {
 		if encoding, ok := responseHeaders["Content-Encoding"]; ok && encoding == "gzip" {
 			ret, err := GZIPDe(responseBody)
@@ -102,6 +117,9 @@ func (m MergeBuilder) MergeReqAndRes() model {
 				md.ResponseBody = string(responseBody)
 			}
 		}
+	}
+	if Debug {
+		fmt.Printf("model: %+v\n", md)
 	}
 	return md
 }
@@ -133,13 +151,22 @@ func printFormatHeader(headers map[string]string) {
 }
 
 type model struct {
+	RequestSrcMAC      string              `json:"request_src_mac"`
+	RequestDstMAC      string              `json:"request_dst_mac"`
+	RequestSrcIP       string              `json:"request_src_ip"`
+	RequestDstIP       string              `json:"request_dst_ip"`
+	RequestSrcPort     string              `json:"request_src_port"`
+	RequestDstPort     string              `json:"request_dst_port"`
+	RequestMethod      string              `json:"request_method"`
 	RequestURL         string              `json:"request_url"`
 	RequestParma       map[string][]string `json:"request_parma"`
 	RequestHeaders     map[string]string   `json:"request_headers"`
-	RequestBody        []byte              `json:"request_body"`
+	RequestBody        interface{}         `json:"request_body"`
 	RequestContentType string              `json:"request_content_type"`
 
 	ResponseStatus      int         `json:"response_status"`
 	ResponseContextType string      `json:"response_context_type"`
 	ResponseBody        interface{} `json:"response_body"`
+
+	Tag []string `json:"tag"`
 }
