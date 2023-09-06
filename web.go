@@ -2,9 +2,9 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/syndtr/goleveldb/leveldb"
+	"log"
 	"net/http"
 	"time"
 )
@@ -24,7 +24,7 @@ func runListening(db *leveldb.DB) {
 			case <-ticker:
 				stat := time.Now()
 				h.load()
-				fmt.Printf("================load data success %fs================l\n", time.Since(stat).Seconds())
+				log.Printf("================load data success %fs================", time.Since(stat).Seconds())
 			}
 		}
 	}()
@@ -90,13 +90,13 @@ func (h *Handler) load() {
 		value := iter.Value()
 		md := model{}
 		if err := json.Unmarshal(value, &md); err != nil {
-			fmt.Printf("json.unmarshal:%s\n", err.Error())
+			log.Printf("json.unmarshal:%s\n", err.Error())
 		}
 		ret = append(ret, md)
 	}
 	iter.Release()
 	if err := iter.Error(); err != nil {
-		fmt.Printf("iter error:%s\n", err.Error())
+		log.Printf("iter error:%s\n", err.Error())
 	}
 	h.cache = &ret
 }

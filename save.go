@@ -19,12 +19,14 @@ func saveHttpData(db *leveldb.DB, mbChan <-chan *MergeBuilder) {
 			log.Printf("package is no text/plain,application/json")
 			continue
 		}
+		md.key()
+
 		byt, err := json.Marshal(md)
 		if err != nil {
 			log.Printf("marshal error %s", err.Error())
 			continue
 		}
-		if err := db.Put([]byte(md.key()), byt, nil); err != nil {
+		if err := db.Put([]byte(md.Id), byt, nil); err != nil {
 			log.Printf("put error %s", err.Error())
 			continue
 		}
@@ -32,12 +34,6 @@ func saveHttpData(db *leveldb.DB, mbChan <-chan *MergeBuilder) {
 }
 
 type MergeBuilder struct {
-	SrcMAC        string    `json:"src_mac"`
-	DstMAC        string    `json:"dst_mac"`
-	SrcIP         string    `json:"src_ip"`
-	DstIP         string    `json:"dst_ip"`
-	SrcPort       string    `json:"src_port"`
-	DstPort       string    `json:"dst_port"`
 	Seq           uint32    `json:"seq"`
 	Ack           uint32    `json:"ack"`
 	ContentLength int       `json:"content_length"`
@@ -79,6 +75,7 @@ func (m MergeBuilder) MergeReqAndRes() model {
 			md.RequestParma = Parma
 			md.RequestHeaders = v.Data.Headers
 			md.RequestContentType = v.Data.Headers["Content-Type"]
+			md.Tag = []string{v.Data.Headers["X-Forwarded-For"]}
 			md.RequestBody = string(v.Data.Body)
 
 			continue
@@ -96,11 +93,11 @@ func (m MergeBuilder) MergeReqAndRes() model {
 
 	md.ResponseStatus = responseLine.Status
 	md.ResponseContextType = responseHeaders["Content-Type"]
-	md.Tag = []string{responseHeaders["X-Forwarded-For"]}
 	if Debug {
 		log.Printf("response: %+v", responseLine.String())
 		printFormatHeader(responseHeaders)
 	}
+
 	if v, ok := responseHeaders["Content-Type"]; ok && !strings.Contains(v, "text/html") {
 		if encoding, ok := responseHeaders["Content-Encoding"]; ok && encoding == "gzip" {
 			ret, err := ParseGzip(responseBody)
@@ -119,6 +116,7 @@ func (m MergeBuilder) MergeReqAndRes() model {
 			}
 		}
 	}
+
 	if Debug {
 		log.Printf("model: %+v", md)
 	}

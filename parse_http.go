@@ -34,14 +34,8 @@ func parseHttp(saveChan chan *MergeBuilder, data []byte) error {
 		}
 
 		mb := MergeBuilder{
-			Seq:     httpData.Seq,
-			Ack:     httpData.Ack,
-			SrcMAC:  httpData.SrcMAC,
-			DstMAC:  httpData.DstMAC,
-			SrcIP:   httpData.SrcIP,
-			DstIP:   httpData.DstIP,
-			SrcPort: httpData.SrcPort,
-			DstPort: httpData.DstPort,
+			Seq: httpData.Seq,
+			Ack: httpData.Ack,
 		}
 		mb.Data = append(mb.Data, httpData)
 
