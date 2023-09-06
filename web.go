@@ -10,7 +10,8 @@ import (
 )
 
 func runListening(db *leveldb.DB) {
-	router := gin.Default()
+	router := gin.New()
+	router.Use(gin.Recovery())
 
 	var h = Handler{
 		db: db,

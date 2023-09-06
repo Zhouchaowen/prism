@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/syndtr/goleveldb/leveldb"
 	"io"
+	"log"
 	"net/url"
 	"strings"
 )
@@ -15,16 +16,16 @@ func saveHttpData(db *leveldb.DB, mbChan <-chan *MergeBuilder) {
 	for mb := range mbChan {
 		md := mb.MergeReqAndRes()
 		if !strings.Contains(md.ResponseContextType, "text/plain") && !strings.Contains(md.ResponseContextType, "application/json") {
-			fmt.Printf("package is no text/plain,application/json")
+			log.Printf("package is no text/plain,application/json")
 			continue
 		}
 		byt, err := json.Marshal(md)
 		if err != nil {
-			fmt.Printf("marshal error %s\n", err.Error())
+			log.Printf("marshal error %s", err.Error())
 			continue
 		}
-		if err := db.Put([]byte(md.RequestURL), byt, nil); err != nil {
-			fmt.Printf("put error %s\n", err.Error())
+		if err := db.Put([]byte(md.key()), byt, nil); err != nil {
+			log.Printf("put error %s", err.Error())
 			continue
 		}
 	}
@@ -54,10 +55,10 @@ func (m MergeBuilder) MergeReqAndRes() model {
 
 	for _, v := range m.Data {
 		if v.Data.Type == IsRequest {
-			fmt.Printf("request: %+v\n", v.Data.RequestLine)
+			log.Printf("request: %+v", v.Data.RequestLine)
 			if Debug {
 				printFormatHeader(v.Data.Headers)
-				fmt.Printf("request param: %+v\n", string(v.Data.Body))
+				log.Printf("request param: %+v", string(v.Data.Body))
 			}
 
 			md.RequestSrcMAC = v.SrcMAC
@@ -68,7 +69,7 @@ func (m MergeBuilder) MergeReqAndRes() model {
 			md.RequestDstPort = v.DstPort
 			urls, err := url.Parse(v.Data.RequestLine.URN)
 			if err != nil {
-				fmt.Printf("url.Parse error %+v\n", err.Error())
+				log.Printf("url.Parse error %+v", err.Error())
 				continue
 			}
 
@@ -97,36 +98,35 @@ func (m MergeBuilder) MergeReqAndRes() model {
 	md.ResponseContextType = responseHeaders["Content-Type"]
 	md.Tag = []string{responseHeaders["X-Forwarded-For"]}
 	if Debug {
-		fmt.Printf("response: %+v\n", responseLine.String())
+		log.Printf("response: %+v", responseLine.String())
 		printFormatHeader(responseHeaders)
 	}
 	if v, ok := responseHeaders["Content-Type"]; ok && !strings.Contains(v, "text/html") {
 		if encoding, ok := responseHeaders["Content-Encoding"]; ok && encoding == "gzip" {
-			ret, err := GZIPDe(responseBody)
+			ret, err := ParseGzip(responseBody)
 			if err != nil && err.Error() != "unexpected EOF" {
-				fmt.Printf("decode err: %s\n", err.Error())
+				log.Printf("decode err: %s", err.Error())
 			}
 			if contentType, ok := responseHeaders["Content-Type"]; ok && (strings.Contains(contentType, "text/plain") || strings.Contains(contentType, "application/json")) {
-				fmt.Printf("response body: %+v\n", string(ret))
+				log.Printf("response body: %+v", string(ret))
 				md.ResponseBody = string(ret)
 			}
 
 		} else {
 			if contentType, ok := responseHeaders["Content-Type"]; ok && (strings.Contains(contentType, "text/plain") || strings.Contains(contentType, "application/json")) {
-				fmt.Printf("response body: %+v\n", string(responseBody))
+				log.Printf("response body: %+v", string(responseBody))
 				md.ResponseBody = string(responseBody)
 			}
 		}
 	}
 	if Debug {
-		fmt.Printf("model: %+v\n", md)
+		log.Printf("model: %+v", md)
 	}
 	return md
 }
 
-// GZIPDe gzip解密
-func GZIPDe(in []byte) ([]byte, error) {
-	// 剔除 多余的乱七八糟的头
+func ParseGzip(in []byte) ([]byte, error) {
+	// remove messy heads
 	for i := 0; i < len(in) && len(in) > 3; i++ {
 		if in[i] == 31 && in[i+1] == 139 && in[i+2] == 8 {
 			in = in[i:]
@@ -151,6 +151,7 @@ func printFormatHeader(headers map[string]string) {
 }
 
 type model struct {
+	Id                 string              `json:"id"`
 	RequestSrcMAC      string              `json:"request_src_mac"`
 	RequestDstMAC      string              `json:"request_dst_mac"`
 	RequestSrcIP       string              `json:"request_src_ip"`
@@ -161,7 +162,7 @@ type model struct {
 	RequestURL         string              `json:"request_url"`
 	RequestParma       map[string][]string `json:"request_parma"`
 	RequestHeaders     map[string]string   `json:"request_headers"`
-	RequestBody        interface{}         `json:"request_body"`
+	RequestBody        string              `json:"request_body"`
 	RequestContentType string              `json:"request_content_type"`
 
 	ResponseStatus      int         `json:"response_status"`
@@ -169,4 +170,9 @@ type model struct {
 	ResponseBody        interface{} `json:"response_body"`
 
 	Tag []string `json:"tag"`
+}
+
+func (m *model) key() string {
+	m.Id = fmt.Sprintf("%s-%s", m.RequestMethod, m.RequestURL)
+	return m.Id
 }

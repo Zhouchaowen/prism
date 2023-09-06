@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	"log"
 	"strconv"
 	"strings"
 )
@@ -26,10 +27,10 @@ func parseHttp(saveChan chan *MergeBuilder, data []byte) error {
 
 	if httpData.Data.Type == IsRequest {
 		if Debug {
-			fmt.Printf("[HTTP]	Request    Line: %+v\n", httpData.Data.RequestLine.String())
-			fmt.Printf("[HTTP]	Request Headers: %+v\n", httpData.Data.Headers)
-			fmt.Printf("[HTTP]	Request    Body: %+v\n", string(httpData.Data.Body))
-			fmt.Println()
+			log.Printf("[HTTP]	Request    Line: %+v", httpData.Data.RequestLine.String())
+			log.Printf("[HTTP]	Request Headers: %+v", httpData.Data.Headers)
+			log.Printf("[HTTP]	Request    Body: %+v", string(httpData.Data.Body))
+			log.Println()
 		}
 
 		mb := MergeBuilder{
@@ -47,14 +48,15 @@ func parseHttp(saveChan chan *MergeBuilder, data []byte) error {
 		mergeMp[httpData.Ack] = &mb
 	}
 
-	if httpData.Data.Type == IsResponse { // 防止不是成对出现
+	// prevent not appearing in pairs
+	if httpData.Data.Type == IsResponse {
 		if Debug {
-			fmt.Printf("[HTTP]	Response    Line: %+v\n", httpData.Data.ResponseLine.String())
-			fmt.Printf("[HTTP]	Response Headers: %+v\n", httpData.Data.Headers)
+			log.Printf("[HTTP]	Response    Line: %+v", httpData.Data.ResponseLine.String())
+			log.Printf("[HTTP]	Response Headers: %+v", httpData.Data.Headers)
 			if Verbose {
-				fmt.Printf("[HTTP]	Response    Body: %+v\n", httpData.Data.Body)
+				log.Printf("[HTTP]	Response    Body: %+v", httpData.Data.Body)
 			}
-			fmt.Println()
+			log.Println()
 		}
 
 		if v, ok := mergeMp[httpData.Seq]; ok {
@@ -66,10 +68,9 @@ func parseHttp(saveChan chan *MergeBuilder, data []byte) error {
 
 			if v.ContentLength >= v.MaxBody {
 				saveChan <- v
-				fmt.Printf("mergeMp[httpData.Seq] model: %+v %+v %+v %+v\n", v.SrcIP, v.DstIP, v.SrcPort, v.DstPort)
 				delete(mergeMp, httpData.Seq)
 			} else {
-				// response 第一次返回，后续可能被截断，只保存第一次ack的seq
+				// the first return may be truncated later, and only the seq of the first ack is saved.
 				ackMp[httpData.Ack] = httpData.Seq
 			}
 			return nil
@@ -84,7 +85,6 @@ func parseHttp(saveChan chan *MergeBuilder, data []byte) error {
 
 			if mb.ContentLength >= mb.MaxBody {
 				saveChan <- mb
-				fmt.Printf("ackMp[httpData.Ack] model: %+v %+v %+v %+v\n", mb.SrcIP, mb.DstPort, mb.SrcPort, mb.DstPort)
 				delete(mergeMp, httpData.Seq)
 			}
 			return nil
@@ -117,27 +117,27 @@ func extractFlyHttp(data []byte) (FlyHttp, error) {
 	}
 
 	if Debug {
-		fmt.Printf("[ETH]       SrcMAC: %s,  DstMAC: %s\n", eth.SrcMAC, eth.DstMAC)
-		fmt.Printf("[IPV4]       SrcIP: %s,   DstIP: %s\n", ipv4.SrcIP, ipv4.DstIP)
-		fmt.Printf("[TCP]      SrcPort: %s, DstPort: %s\n", tcp.SrcPort, tcp.DstPort)
-		fmt.Printf("[IPV4]     Version: %d\n", ipv4.Version)
-		fmt.Printf("[IPV4]      Length: %d\n", ipv4.Length)
-		fmt.Printf("[TCP]          Seq: %d\n", tcp.Seq)
-		fmt.Printf("[TCP]          Ack: %d\n", tcp.Ack)
-		fmt.Printf("[TCP]          FIN: %t\n", tcp.FIN)
-		fmt.Printf("[TCP]          SYN: %t\n", tcp.SYN)
-		fmt.Printf("[TCP]          RST: %t\n", tcp.RST)
-		fmt.Printf("[TCP]          PSH: %t\n", tcp.PSH)
-		fmt.Printf("[TCP]          ACK: %t\n", tcp.ACK)
-		fmt.Printf("[TCP]          URG: %t\n", tcp.URG)
-		fmt.Printf("[TCP]          ECE: %t\n", tcp.ECE)
-		fmt.Printf("[TCP]          CWR: %t\n", tcp.CWR)
-		fmt.Printf("[TCP]           NS: %t\n", tcp.NS)
-		fmt.Printf("[TCP]       Window: %d\n", tcp.Window)
-		fmt.Printf("[TCP]     Checksum: %d\n", tcp.Checksum)
-		fmt.Printf("[TCP]       Urgent: %d\n", tcp.Urgent)
-		fmt.Printf("[TCP]      Options: %d\n", tcp.Options)
-		fmt.Printf("[TCP]      Padding: %+v\n", tcp.Padding)
+		log.Printf("[ETH]       SrcMAC: %s,  DstMAC: %s", eth.SrcMAC, eth.DstMAC)
+		log.Printf("[IPV4]       SrcIP: %s,   DstIP: %s", ipv4.SrcIP, ipv4.DstIP)
+		log.Printf("[TCP]      SrcPort: %s, DstPort: %s", tcp.SrcPort, tcp.DstPort)
+		log.Printf("[IPV4]     Version: %d", ipv4.Version)
+		log.Printf("[IPV4]      Length: %d", ipv4.Length)
+		log.Printf("[TCP]          Seq: %d", tcp.Seq)
+		log.Printf("[TCP]          Ack: %d", tcp.Ack)
+		log.Printf("[TCP]          FIN: %t", tcp.FIN)
+		log.Printf("[TCP]          SYN: %t", tcp.SYN)
+		log.Printf("[TCP]          RST: %t", tcp.RST)
+		log.Printf("[TCP]          PSH: %t", tcp.PSH)
+		log.Printf("[TCP]          ACK: %t", tcp.ACK)
+		log.Printf("[TCP]          URG: %t", tcp.URG)
+		log.Printf("[TCP]          ECE: %t", tcp.ECE)
+		log.Printf("[TCP]          CWR: %t", tcp.CWR)
+		log.Printf("[TCP]           NS: %t", tcp.NS)
+		log.Printf("[TCP]       Window: %d", tcp.Window)
+		log.Printf("[TCP]     Checksum: %d", tcp.Checksum)
+		log.Printf("[TCP]       Urgent: %d", tcp.Urgent)
+		log.Printf("[TCP]      Options: %d", tcp.Options)
+		log.Printf("[TCP]      Padding: %+v", tcp.Padding)
 	}
 
 	httpData := parseHttpData(data)
@@ -156,10 +156,9 @@ func extractFlyHttp(data []byte) (FlyHttp, error) {
 }
 
 func parseHttpData(data []byte) HttpData {
-	// 将二进制数据转换为字符串
 	rawData := string(data)
 
-	// 切分请求头和请求体
+	// split request headers and request bodies
 	parts := strings.SplitN(rawData, "\r\n\r\n", 2)
 	headerPart := parts[0]
 	bodyPart := ""
@@ -167,9 +166,9 @@ func parseHttpData(data []byte) HttpData {
 		bodyPart = parts[1]
 	} else {
 		if Debug {
-			fmt.Printf("is truncation\n")
+			log.Printf("is truncation")
 		}
-		// 被截断了
+		// is truncation
 		return HttpData{
 			IsTruncation: true,
 			Type:         IsResponse,
@@ -177,7 +176,7 @@ func parseHttpData(data []byte) HttpData {
 		}
 	}
 
-	// 解析请求行和请求头
+	// parse request lines and headers
 	headerLines := strings.Split(headerPart, "\r\n")
 	firstLine := headerLines[0]
 	headers := make(map[string]string)
