@@ -22,6 +22,8 @@ import (
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc $BPF_CLANG -cflags $BPF_CFLAGS bpf ./bpf/http/tc_http.c -- -I./bpf/headers
 
+const version = "v0.0.1"
+
 var (
 	InterfaceName string
 	DataPath      string
@@ -71,6 +73,14 @@ func main() {
 		log.Fatalf("attach tc egress failed, %v", err)
 	}
 	defer netlink.FilterDel(infEgress)
+
+	log.Printf("  ____       _               ")
+	log.Printf(" |  _ \\ _ __(_)___ _ __ ___  ")
+	log.Printf(" | |_) | '__| / __| '_ ` _ \\ ")
+	log.Printf(" |  __/| |  | \\__ \\ | | | | |")
+	log.Printf(" |_|   |_|  |_|___/_| |_| |_|")
+	log.Printf("")
+	log.Printf("Version %s", version)
 
 	log.Printf("Attached TC program to iface %q (index %d)", iface.Name, iface.Index)
 	log.Printf("Press Ctrl-C to exit and remove the program")
@@ -139,7 +149,7 @@ func run(queueTask chan bpfHttpDataEventT, rd *ringbuf.Reader) {
 			continue
 		}
 
-		// Parse the perf event entry into a bpfEvent structure.
+		// Parse the perf event entry into a bpfHttpDataEventT structure.
 		if err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event); err != nil {
 			log.Printf("parsing perf event: %s", err)
 			continue
@@ -148,7 +158,7 @@ func run(queueTask chan bpfHttpDataEventT, rd *ringbuf.Reader) {
 	}
 }
 
-// 替换 Qdisc 队列
+// replace Qdisc queue
 func replaceQdisc(link netlink.Link) error {
 	attrs := netlink.QdiscAttrs{
 		LinkIndex: link.Attrs().Index,
@@ -164,7 +174,7 @@ func replaceQdisc(link netlink.Link) error {
 	return netlink.QdiscReplace(qdisc)
 }
 
-// 加载 TC 程序
+// attach TC program
 func attachTC(link netlink.Link, prog *ebpf.Program, progName string, qdiscParent uint32) (*netlink.BpfFilter, error) {
 	if err := replaceQdisc(link); err != nil {
 		return nil, fmt.Errorf("replacing clsact qdisc for interface %s: %w", link.Attrs().Name, err)
