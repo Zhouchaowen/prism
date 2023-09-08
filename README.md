@@ -1,41 +1,52 @@
 # Prism
 
-eBPF-based Interface Builder
+Prism is an eBPF-Based interface generator that captures the HTTP traffic of Ingress and Egress through TC and passes it to the user mode through ringbuf to assemble complete data.
+
+# Run
+
+- kernel >= 5.8.0
+
+## operating run
+
+> device_name, replace with the name of the network device the program is attached to (e.g. eth0)
+
+```bash
+prism -n <device_name>
+```
+
+## docker run
+
+```bash
+docker run --net host --privileged --name prism -itd prism:v0.0.1 ./prism -n <device_name>
+```
 
 # How to compile
 
 ## require
 
-- kernel >= 5.8.0 
-- LLvm >= 11
-- Clang >= 11
+- Kernel >= 5.8.0 
+- LLvm >= 14
+- Clang >= 14
 - Golang >= 1.18
 - cmake
 
 ```bash
 # Ubuntu 22.04
 apt-get install linux-kernel-headers linux-headers-$(uname -r)
-apt-get update && apt-get install -y make clang-11 llvm-11 libc6-dev libc6-dev-i386 libz-dev libelf-dev libbpf-dev iproute2 && apt-get clean
-ln -s $(which clang-11) /usr/bin/clang && ln -s $(which llc-11) /usr/bin/llc
+apt-get update && apt-get install -y make clang-14 llvm-14 libc6-dev libc6-dev-i386 libz-dev libelf-dev libbpf-dev iproute2 && apt-get clean
+ln -s $(which clang-14) /usr/bin/clang && ln -s $(which llc-14) /usr/bin/llc
 ```
 
 ## compile
 
 ```bash
-make gen
+make gen && go build .
 ```
 
-# Run
+## docker
+
+compile by docker
 
 ```bash
-export GO111MODULE=on && go run -exec sudo main.go bpf_bpfel.go parse_http.go save.go web.go -n <device_name>
+docker run --rm  -v /root/prism:/root/prism ebpf-build:v22.04-llvm-14 bash -c "cd /root/prism && make gen"
 ```
-
-> device_name 替换为程序附加到的网络设备的名称（例如 eth0）
-
-# Docker run
-
-```bash
-
-```
-

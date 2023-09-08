@@ -6,12 +6,17 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
 func runListening(db *leveldb.DB) {
 	router := gin.New()
 	router.Use(gin.Recovery())
+	router.LoadHTMLGlob("/web/*.html")
+	router.Static("/css", "/web/css")
+	router.Static("/js", "/web/js")
+	router.StaticFile("/", "/web/index.html") //前端接口
 
 	var h = Handler{
 		db: db,
@@ -40,9 +45,9 @@ type Handler struct {
 }
 
 type Search struct {
-	Name   string `json:"name"`
-	Offset int    `json:"offset"`
-	Limit  int    `json:"limit" binding:"required,min=10"`
+	Name   string `form:"name"`
+	Offset int    `form:"offset" binding:"required,min=1"`
+	Limit  int    `form:"limit" binding:"required,min=10"`
 }
 
 func (h Handler) list(ctx *gin.Context) {
@@ -58,26 +63,39 @@ func (h Handler) list(ctx *gin.Context) {
 		h.load()
 	}
 
-	left := search.Offset * search.Limit
-	right := (search.Offset + 1) * search.Limit
-	if left >= len(*h.cache) {
+	cache := *h.cache
+
+	// filter by name
+	if len(search.Name) > 0 {
+		var tmp []model
+		for i, _ := range cache {
+			if strings.Contains(cache[i].RequestURL, search.Name) {
+				tmp = append(tmp, cache[i])
+			}
+		}
+		cache = tmp
+	}
+
+	left := (search.Offset - 1) * search.Limit
+	right := search.Offset * search.Limit
+	if left >= len(cache) {
 		ctx.JSON(http.StatusOK, gin.H{
 			"msg": "no data",
 		})
 		return
 	}
 
-	if right > len(*h.cache) {
+	if right > len(cache) {
 		ctx.JSON(http.StatusOK, gin.H{
-			"data":  (*h.cache)[left:],
-			"total": len(*h.cache),
+			"data":  cache[left:],
+			"total": len(cache),
 		})
 		return
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"data":  (*h.cache)[left:right],
-		"total": len(*h.cache),
+		"data":  cache[left:right],
+		"total": len(cache),
 	})
 	return
 }
