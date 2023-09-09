@@ -29,7 +29,7 @@ pl:
 	scp -r root@10.2.0.105:/root/prism/* .
 
 test-run:
-	go run -exec sudo main.go bpf_bpfel.go -n $(DEV)
+	export GO111MODULE=on && go run -exec sudo main.go ringbuf_bpfel.go perf_bpfel.go parse_http.go save.go web.go utils.go -n $(DEV)
 
 build:
 	docker build -t $(IMAGE) .

@@ -29,11 +29,6 @@ struct http_data_event {
   __u32 data_len;
 };
 
-//struct
-//{
-//    __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
-//} http_events SEC(".maps");
-
 // BPF ringbuf map
 struct {
   __uint(type, BPF_MAP_TYPE_RINGBUF);
@@ -139,7 +134,6 @@ static __inline int capture_packets(struct __sk_buff *skb,enum tc_type type) {
         name_pos++;
     }
 
-//    bpf_perf_event_output(skb, &http_events, BPF_F_CURRENT_CPU, event,sizeof(struct http_data_event));
     bpf_ringbuf_submit(event, 0);
 
     return TC_ACT_OK;

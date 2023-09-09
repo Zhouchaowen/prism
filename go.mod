@@ -3,6 +3,7 @@ module prism
 go 1.18
 
 require (
+	github.com/blang/semver/v4 v4.0.0
 	github.com/cilium/ebpf v0.11.0
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/gopacket v1.1.19
