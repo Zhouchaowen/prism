@@ -4,7 +4,7 @@ Prism is an eBPF-Based interface generator that captures the HTTP traffic of Ing
 
 # Run
 
-- kernel >= 5.8.0
+- Kernel >= 5.8.0
 
 ## operating run
 
@@ -28,7 +28,7 @@ docker run --net host --privileged --name prism -itd prism:v0.0.1 ./prism -n <de
 - LLvm >= 14
 - Clang >= 14
 - Golang >= 1.18
-- cmake
+- Cmake
 
 ```bash
 # Ubuntu 22.04

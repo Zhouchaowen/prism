@@ -9,81 +9,58 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
-	IsRequest  = 1
-	IsResponse = 2
+	IsRequest                    = 1
+	IsResponse                   = 2
+	ContentType                  = "Content-Type"
+	ContentLength                = "Content-Length"
+	ContentEncoding              = "Content-Encoding"
+	ContentTypeJSON              = "application/json"
+	ContentTypeHTML              = "text/html"
+	ContentTypePlain             = "text/plain"
+	ContentTypeForm              = "application/x-www-form-urlencoded"
+	ContentTypeMultipartPOSTForm = "multipart/form-data"
+
+	XForwardedFor = "X-Forwarded-For"
+	HTTP          = "HTTP"
 )
 
-var mergeMp = map[uint32]*MergeBuilder{}
-var ackMp = map[uint32]uint32{}
+func ParseHttp(data []byte) error {
+	if Debug && Verbose {
+		log.Printf("data:%+v", data)
+	}
 
-func parseHttp(saveChan chan *MergeBuilder, data []byte) error {
-	httpData, err := extractFlyHttp(data)
+	flyHttp, err := extractFlyHttp(data)
 	if err != nil {
+		log.Printf("extract fly http error:%+v", err.Error())
 		return err
 	}
 
-	if httpData.Data.Type == IsRequest {
-		if Debug {
-			log.Printf("[HTTP]	Request    Line: %+v", httpData.Data.RequestLine.String())
-			log.Printf("[HTTP]	Request Headers: %+v", httpData.Data.Headers)
-			log.Printf("[HTTP]	Request    Body: %+v", string(httpData.Data.Body))
+	rType := flyHttp.Data.Type
+	if rType == IsRequest {
+		if Debug && Verbose {
+			log.Printf("[HTTP]	Request    Body: %+v", string(flyHttp.Data.Body))
 			log.Println()
 		}
-
-		mb := MergeBuilder{
-			Seq: httpData.Seq,
-			Ack: httpData.Ack,
-		}
-		mb.Data = append(mb.Data, httpData)
-
-		mergeMp[httpData.Ack] = &mb
+		ackRequest.Save(flyHttp)
 	}
 
-	// prevent not appearing in pairs
-	if httpData.Data.Type == IsResponse {
-		if Debug {
-			log.Printf("[HTTP]	Response    Line: %+v", httpData.Data.ResponseLine.String())
-			log.Printf("[HTTP]	Response Headers: %+v", httpData.Data.Headers)
-			if Verbose {
-				log.Printf("[HTTP]	Response    Body: %+v", httpData.Data.Body)
-			}
+	if rType == IsResponse {
+		if Debug && Verbose {
+			log.Printf("[HTTP]	Response    Body: %+v", flyHttp.Data.Body)
 			log.Println()
 		}
 
-		if v, ok := mergeMp[httpData.Seq]; ok {
-			v.Seq = httpData.Seq
-			v.Ack = httpData.Ack
-			v.ContentLength += len(httpData.Data.Body)
-			v.MaxBody, _ = strconv.Atoi(httpData.Data.Headers["Content-Length"])
-			v.Data = append(v.Data, httpData)
-
-			if v.ContentLength >= v.MaxBody {
-				saveChan <- v
-				delete(mergeMp, httpData.Seq)
-			} else {
-				// the first return may be truncated later, and only the seq of the first ack is saved.
-				ackMp[httpData.Ack] = httpData.Seq
-			}
-			return nil
+		// If the response http data is not truncated, the seq to ack mapping is saved,
+		// through which the request can be associated with multiple responses.
+		if !flyHttp.Data.IsTruncation {
+			seqToAck.Save(flyHttp)
 		}
 
-		if v, ok := ackMp[httpData.Ack]; ok {
-			var mb = mergeMp[v]
-			mb.Seq = httpData.Seq
-			mb.Ack = httpData.Ack
-			mb.ContentLength += len(httpData.Data.Body)
-			mb.Data = append(mb.Data, httpData)
-
-			if mb.ContentLength >= mb.MaxBody {
-				saveChan <- mb
-				delete(mergeMp, httpData.Seq)
-			}
-			return nil
-		}
-
+		ackResponse.Save(flyHttp)
 	}
 
 	return nil
@@ -134,41 +111,70 @@ func extractFlyHttp(data []byte) (FlyHttp, error) {
 		log.Printf("[TCP]      Padding: %+v", tcp.Padding)
 	}
 
-	httpData := parseHttpData(data)
+	reqOrResData := parseReqOrResData(data)
+
+	if reqOrResData.Type == IsRequest {
+		if Debug && !reqOrResData.IsTruncation {
+			log.Printf("[HTTP]	Request    Line: %+v", reqOrResData.RequestLine.String())
+			log.Printf("[HTTP]	Request Headers: %+v", reqOrResData.Headers)
+			log.Println()
+		}
+	}
+
+	if reqOrResData.Type == IsResponse {
+		if Debug && !reqOrResData.IsTruncation {
+			log.Printf("[HTTP]	Response    Line: %+v", reqOrResData.ResponseLine.String())
+			log.Printf("[HTTP]	Response Headers: %+v", reqOrResData.Headers)
+			log.Println()
+		}
+	}
 
 	return FlyHttp{
-		SrcMAC:  eth.SrcMAC.String(),
-		DstMAC:  eth.DstMAC.String(),
-		SrcIP:   ipv4.SrcIP.String(),
-		DstIP:   ipv4.DstIP.String(),
-		SrcPort: tcp.SrcPort.String(),
-		DstPort: tcp.DstPort.String(),
-		Seq:     tcp.Seq,
-		Ack:     tcp.Ack,
-		Data:    httpData,
+		SrcMAC:     eth.SrcMAC.String(),
+		DstMAC:     eth.DstMAC.String(),
+		SrcIP:      ipv4.SrcIP.String(),
+		DstIP:      ipv4.DstIP.String(),
+		SrcPort:    tcp.SrcPort.String(),
+		DstPort:    tcp.DstPort.String(),
+		Seq:        tcp.Seq,
+		Ack:        tcp.Ack,
+		Data:       reqOrResData,
+		CreateTime: time.Now(),
 	}, nil
 }
 
-func parseHttpData(data []byte) HttpData {
+func parseReqOrResData(data []byte) ReqOrResData {
 	rawData := string(data)
 
 	// split request headers and request bodies
 	parts := strings.SplitN(rawData, "\r\n\r\n", 2)
 	headerPart := parts[0]
-	bodyPart := ""
+
+	IsTruncation := true
+	// check whether response data is truncated
 	if len(parts) > 1 {
-		bodyPart = parts[1]
-	} else {
+		headerLines := strings.Split(headerPart, "\r\n")
+		if len(headerLines) > 1 {
+			firstLine := strings.Split(strings.TrimSpace(headerLines[0]), " ")
+			if len(firstLine) == 3 && strings.Contains(headerLines[0], HTTP) {
+				IsTruncation = false
+			}
+		}
+	}
+
+	if IsTruncation {
 		if Debug {
 			log.Printf("is truncation")
 		}
 		// is truncation
-		return HttpData{
+		return ReqOrResData{
 			IsTruncation: true,
 			Type:         IsResponse,
 			Body:         bytes.NewBufferString(headerPart).Bytes(),
 		}
 	}
+
+	bodyPart := parts[1]
 
 	// parse request lines and headers
 	headerLines := strings.Split(headerPart, "\r\n")
@@ -182,11 +188,13 @@ func parseHttpData(data []byte) HttpData {
 			headers[headerName] = headerValue
 		}
 	}
-	var ret = HttpData{
+
+	var ret = ReqOrResData{
 		Type:    requestOrResponse(firstLine),
 		Headers: headers,
 		Body:    bytes.NewBufferString(bodyPart).Bytes(),
 	}
+
 	if ret.Type == IsRequest {
 		ret.RequestLine.parseFirstLine(firstLine)
 	} else {
@@ -203,7 +211,7 @@ func requestOrResponse(FirstLine string) int {
 		return IsResponse
 	}
 	// 2 Response
-	if strings.Contains(lines[0], "HTTP") {
+	if strings.Contains(lines[0], HTTP) {
 		return IsResponse
 	}
 	// 1 Request
@@ -211,18 +219,19 @@ func requestOrResponse(FirstLine string) int {
 }
 
 type FlyHttp struct {
-	SrcMAC  string   `json:"request_src_mac"`
-	DstMAC  string   `json:"request_dst_mac"`
-	SrcIP   string   `json:"request_src_ip"`
-	DstIP   string   `json:"request_dst_ip"`
-	SrcPort string   `json:"request_src_port"`
-	DstPort string   `json:"request_dst_port"`
-	Seq     uint32   `json:"seq"`
-	Ack     uint32   `json:"ack"`
-	Data    HttpData `json:"data"`
+	SrcMAC     string       `json:"request_src_mac"`
+	DstMAC     string       `json:"request_dst_mac"`
+	SrcIP      string       `json:"request_src_ip"`
+	DstIP      string       `json:"request_dst_ip"`
+	SrcPort    string       `json:"request_src_port"`
+	DstPort    string       `json:"request_dst_port"`
+	Seq        uint32       `json:"seq"`
+	Ack        uint32       `json:"ack"`
+	Data       ReqOrResData `json:"data"`
+	CreateTime time.Time    `json:"create_time"`
 }
 
-type HttpData struct {
+type ReqOrResData struct {
 	Type         int
 	RequestLine  RequestLine
 	ResponseLine ResponseLine
