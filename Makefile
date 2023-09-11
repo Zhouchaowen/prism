@@ -28,11 +28,14 @@ ps:
 pl:
 	scp -r root@10.2.0.105:/root/prism/* .
 
-test-run:
-	export GO111MODULE=on && go run -exec sudo main.go ringbuf_bpfel.go perf_bpfel.go merge.go parse_http.go save.go web.go utils.go -n $(DEV)
-
 build:
+	make gen && export GO111MODULE=on && go build -ldflags "-s -w" -o prism .
+
+run: build
+	./prism -n $(DEV)
+
+build-image:
 	docker build -t $(IMAGE) .
 
-run:
+run-image:
 	docker run --net host --privileged --name $(NAME) -itd $(IMAGE) ./$(NAME) -n $(DEV)

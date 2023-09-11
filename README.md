@@ -17,7 +17,7 @@ prism -n <device_name>
 ## docker run
 
 ```bash
-docker run --net host --privileged --name prism -itd prism:v0.0.1 ./prism -n <device_name>
+docker run --net host --privileged --name prism -itd zmosquito/prism:v0.0.1 ./prism -n <device_name>
 ```
 
 # How to compile
@@ -40,7 +40,7 @@ ln -s $(which clang-14) /usr/bin/clang && ln -s $(which llc-14) /usr/bin/llc
 ## compile
 
 ```bash
-make gen && go build .
+make build
 ```
 
 ## docker
@@ -48,5 +48,5 @@ make gen && go build .
 compile by docker
 
 ```bash
-docker run --rm  -v /root/prism:/root/prism ebpf-build:v22.04-llvm-14 bash -c "cd /root/prism && make gen"
+docker run --rm  -v /root/prism:/root/prism ebpf-build:v22.04-llvm-14 bash -c "cd /root/prism && make build"
 ```
