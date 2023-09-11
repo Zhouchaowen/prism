@@ -29,17 +29,14 @@ struct http_data_event {
   __u32 data_len;
 };
 
-// BPF ringbuf map
 struct {
-  __uint(type, BPF_MAP_TYPE_RINGBUF);
-  __uint(max_entries, 256 * 1024 /* 256 KB */);
+    __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
 } http_events SEC(".maps");
 
 
 // BPF programs are limited to a 512-byte stack. We store this value per CPU
 // and use it as a heap allocated value.
-struct
-{
+struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __type(key, __u32);
     __type(value, struct http_data_event);
@@ -101,14 +98,6 @@ static __inline int capture_packets(struct __sk_buff *skb,enum tc_type type) {
       return TC_ACT_OK;
     }
 
-    event = bpf_ringbuf_reserve(&http_events, sizeof(struct http_data_event), 0);
-    if (!event) {
-    #ifdef DEBUG
-        bpf_printk("---------no memory---------\n");
-    #endif
-        return 0;
-    }
-
     event->type = type;
     // This is a max function, but it is written in such a way to keep older BPF verifiers happy.
     event->data_len = (len < MAX_DATA_SIZE ? len : MAX_DATA_SIZE);
@@ -134,7 +123,7 @@ static __inline int capture_packets(struct __sk_buff *skb,enum tc_type type) {
         name_pos++;
     }
 
-    bpf_ringbuf_submit(event, 0);
+    bpf_perf_event_output(skb, &http_events, BPF_F_CURRENT_CPU, event,sizeof(struct http_data_event));
 
     return TC_ACT_OK;
 }
