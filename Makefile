@@ -14,6 +14,9 @@ IMAGE ?= $(NAME):$(VERSION)
 format:
 	find . -type f -name "*.c" | xargs clang-format -i
 
+env:
+	go env -w GOPROXY=https://goproxy.cn,direct && go install github.com/cilium/ebpf/cmd/bpf2go@latest
+
 # $BPF_CLANG is used in go:generate invocations.
 gen: export BPF_CLANG := $(CLANG)
 gen: export BPF_CFLAGS := $(CFLAGS)
@@ -28,8 +31,8 @@ ps:
 pl:
 	scp -r root@10.2.0.105:/root/prism/* .
 
-build:
-	make gen && export GO111MODULE=on && go build -ldflags "-s -w" -o prism .
+build: env gen
+	go mod tidy && go build -ldflags "-s -w" -o prism .
 
 run: build
 	./prism -n $(DEV)

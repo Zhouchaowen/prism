@@ -48,5 +48,5 @@ make build
 compile by docker
 
 ```bash
-docker run --rm  -v /root/prism:/root/prism ebpf-build:v22.04-llvm-14 bash -c "cd /root/prism && make build"
+docker run --rm  -v /root/prism:/root/prism ghcr.io/cilium/ebpf-builder:1694533004 bash -c "cd /root/prism && make build"
 ```

@@ -30,7 +30,7 @@ const (
 
 func ParseHttp(data []byte) error {
 	if Debug && Verbose {
-		log.Printf("data:%+v", data)
+		log.Printf("[PACKAGE] data:%+v", data)
 	}
 
 	flyHttp, err := extractFlyHttp(data)
