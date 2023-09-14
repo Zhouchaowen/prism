@@ -50,3 +50,6 @@ compile by docker
 ```bash
 docker run --rm  -v /root/prism:/root/prism ghcr.io/cilium/ebpf-builder:1694533004 bash -c "cd /root/prism && make build"
 ```
+
+## Demo
+<iframe src="//player.bilibili.com/player.html?aid=873470777&bvid=BV1tK4y1c7rh&cid=1266597417&p=1" scrolling="no" border="0" frameborder="no" framespacing="0" allowfullscreen="true"> </iframe>
