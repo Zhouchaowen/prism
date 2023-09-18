@@ -22,19 +22,8 @@ func RunListening(db *leveldb.DB) {
 		db: db,
 	}
 
-	go func() {
-		ticker := time.Tick(60 * time.Second)
-		for {
-			select {
-			case <-ticker:
-				stat := time.Now()
-				h.load()
-				log.Printf("================load data success %fs================", time.Since(stat).Seconds())
-			}
-		}
-	}()
-
 	router.GET("/interface", h.list)
+	router.GET("/refresh", h.refresh)
 
 	router.Run(":8080")
 }
@@ -100,6 +89,16 @@ func (h Handler) list(ctx *gin.Context) {
 	return
 }
 
+func (h Handler) refresh(ctx *gin.Context) {
+	stat := time.Now()
+	h.load()
+	log.Printf("[PRISM] load data success %fs", time.Since(stat).Seconds())
+	ctx.JSON(http.StatusOK, gin.H{
+		"msg": "success",
+	})
+	return
+}
+
 func (h *Handler) load() {
 	var ret []model
 	iter := h.db.NewIterator(nil, nil)
@@ -108,13 +107,13 @@ func (h *Handler) load() {
 		value := iter.Value()
 		md := model{}
 		if err := json.Unmarshal(value, &md); err != nil {
-			log.Printf("json.unmarshal:%s\n", err.Error())
+			log.Printf("[PRISM] json unmarshal error (%s)", err.Error())
 		}
 		ret = append(ret, md)
 	}
 	iter.Release()
 	if err := iter.Error(); err != nil {
-		log.Printf("iter error:%s\n", err.Error())
+		log.Printf("[PRISM] iter error (%s)", err.Error())
 	}
 	h.cache = &ret
 }

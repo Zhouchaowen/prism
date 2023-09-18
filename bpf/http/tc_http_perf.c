@@ -20,7 +20,7 @@
 #define DNS_HLEN sizeof(struct dns_hdr)
 
 #define HTTP_DATA_MIN_SIZE 91
-#define MAX_DATA_SIZE 4000
+#define MAX_DATA_SIZE 1024*4
 #define MAX_TRUNCATION 10
 enum tc_type { Egress, Ingress };
 

@@ -8,9 +8,10 @@ CFLAGS := -O2 -g -Wall -Werror $(CFLAGS)
 DEV ?= lo
 HOST ?= 10.2.0.105
 
+STOREHOUSE ?= zmosquito
 NAME ?= prism
 VERSION ?= v0.0.1
-IMAGE ?= $(NAME):$(VERSION)
+IMAGE ?= $(STOREHOUSE)/$(NAME):$(VERSION)
 
 format:
 	find . -type f -name "*.c" | xargs clang-format -i

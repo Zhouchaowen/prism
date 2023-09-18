@@ -31,27 +31,27 @@ const (
 
 func ParseHttp(data []byte) error {
 	if Debug && Verbose {
-		log.Printf("[PACKAGE] data:%+v", data)
+		log.Printf("[PRISM] data:%+v", data)
 	}
 
 	flyHttp, err := extractFlyHttp(data)
 	if err != nil {
-		log.Printf("extract fly http error:%+v", err.Error())
+		log.Printf("[ERROR] extract fly http error (%+v)", err.Error())
 		return err
 	}
 
 	rType := flyHttp.Data.Type
 	if rType == IsRequest {
 		if Debug && Verbose {
-			log.Printf("[HTTP]	Request    Body: %+v", string(flyHttp.Data.Body))
+			log.Printf("[PRISM] HTTP Request Body: %+v", string(flyHttp.Data.Body))
 			log.Println()
 		}
-		ackRequest.Save(flyHttp)
+		ackToRequest.Save(flyHttp)
 	}
 
 	if rType == IsResponse {
 		if Debug && Verbose {
-			log.Printf("[HTTP]	Response    Body: %+v", flyHttp.Data.Body)
+			log.Printf("[PRISM] HTTP Response Body: %+v", flyHttp.Data.Body)
 			log.Println()
 		}
 
@@ -61,7 +61,7 @@ func ParseHttp(data []byte) error {
 			seqToAck.Save(flyHttp)
 		}
 
-		ackResponse.Save(flyHttp)
+		ackToResponse.Save(flyHttp)
 	}
 
 	return nil
@@ -89,43 +89,43 @@ func extractFlyHttp(data []byte) (FlyHttp, error) {
 	}
 
 	if Debug {
-		log.Printf("[ETH]       SrcMAC: %s,  DstMAC: %s", eth.SrcMAC, eth.DstMAC)
-		log.Printf("[IPV4]       SrcIP: %s,   DstIP: %s", ipv4.SrcIP, ipv4.DstIP)
-		log.Printf("[TCP]      SrcPort: %s, DstPort: %s", tcp.SrcPort, tcp.DstPort)
-		log.Printf("[IPV4]     Version: %d", ipv4.Version)
-		log.Printf("[IPV4]      Length: %d", ipv4.Length)
-		log.Printf("[TCP]          Seq: %d", tcp.Seq)
-		log.Printf("[TCP]          Ack: %d", tcp.Ack)
-		log.Printf("[TCP]          FIN: %t", tcp.FIN)
-		log.Printf("[TCP]          SYN: %t", tcp.SYN)
-		log.Printf("[TCP]          RST: %t", tcp.RST)
-		log.Printf("[TCP]          PSH: %t", tcp.PSH)
-		log.Printf("[TCP]          ACK: %t", tcp.ACK)
-		log.Printf("[TCP]          URG: %t", tcp.URG)
-		log.Printf("[TCP]          ECE: %t", tcp.ECE)
-		log.Printf("[TCP]          CWR: %t", tcp.CWR)
-		log.Printf("[TCP]           NS: %t", tcp.NS)
-		log.Printf("[TCP]       Window: %d", tcp.Window)
-		log.Printf("[TCP]     Checksum: %d", tcp.Checksum)
-		log.Printf("[TCP]       Urgent: %d", tcp.Urgent)
-		log.Printf("[TCP]      Options: %d", tcp.Options)
-		log.Printf("[TCP]      Padding: %+v", tcp.Padding)
+		log.Printf("[PRISM] ETH   SrcMAC: %s,  DstMAC: %s", eth.SrcMAC, eth.DstMAC)
+		log.Printf("[PRISM] IPV4   SrcIP: %s,   DstIP: %s", ipv4.SrcIP, ipv4.DstIP)
+		log.Printf("[PRISM] TCP  SrcPort: %s, DstPort: %s", tcp.SrcPort, tcp.DstPort)
+		log.Printf("[PRISM] IPV4 Version: %d", ipv4.Version)
+		log.Printf("[PRISM] IPV4  Length: %d", ipv4.Length)
+		log.Printf("[PRISM] TCP      Seq: %d", tcp.Seq)
+		log.Printf("[PRISM] TCP      Ack: %d", tcp.Ack)
+		log.Printf("[PRISM] TCP      FIN: %t", tcp.FIN)
+		log.Printf("[PRISM] TCP      SYN: %t", tcp.SYN)
+		log.Printf("[PRISM] TCP      RST: %t", tcp.RST)
+		log.Printf("[PRISM] TCP      PSH: %t", tcp.PSH)
+		log.Printf("[PRISM] TCP      ACK: %t", tcp.ACK)
+		log.Printf("[PRISM] TCP      URG: %t", tcp.URG)
+		log.Printf("[PRISM] TCP      ECE: %t", tcp.ECE)
+		log.Printf("[PRISM] TCP      CWR: %t", tcp.CWR)
+		log.Printf("[PRISM] TCP       NS: %t", tcp.NS)
+		log.Printf("[PRISM] TCP   Window: %d", tcp.Window)
+		log.Printf("[PRISM] TCP Checksum: %d", tcp.Checksum)
+		log.Printf("[PRISM] TCP   Urgent: %d", tcp.Urgent)
+		log.Printf("[PRISM] TCP  Options: %d", tcp.Options)
+		log.Printf("[PRISM] TCP  Padding: %+v", tcp.Padding)
 	}
 
 	reqOrResData := parseReqOrResData(data)
 
 	if reqOrResData.Type == IsRequest {
 		if Debug && !reqOrResData.IsTruncation {
-			log.Printf("[HTTP]	Request    Line: %+v", reqOrResData.RequestLine.String())
-			log.Printf("[HTTP]	Request Headers: %+v", reqOrResData.Headers)
+			log.Printf("[HTTP] Request    Line: %+v", reqOrResData.RequestLine.String())
+			log.Printf("[HTTP] Request Headers: %+v", reqOrResData.Headers)
 			log.Println()
 		}
 	}
 
 	if reqOrResData.Type == IsResponse {
 		if Debug && !reqOrResData.IsTruncation {
-			log.Printf("[HTTP]	Response    Line: %+v", reqOrResData.ResponseLine.String())
-			log.Printf("[HTTP]	Response Headers: %+v", reqOrResData.Headers)
+			log.Printf("[PRISM] HTTP Response    Line: %+v", reqOrResData.ResponseLine.String())
+			log.Printf("[PRISM] HTTP Response Headers: %+v", reqOrResData.Headers)
 			log.Println()
 		}
 	}
@@ -165,7 +165,7 @@ func parseReqOrResData(data []byte) ReqOrResData {
 
 	if IsTruncation {
 		if Debug {
-			log.Printf("is truncation")
+			log.Printf("[PRISM] HTTP is truncation")
 		}
 		// is truncation
 		return ReqOrResData{

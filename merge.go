@@ -15,66 +15,69 @@ import (
 	"time"
 )
 
-var ackRequest = AckRequest{ackRequest: map[uint32]FlyHttp{}}
-var ackResponse = AckResponse{ackResponse: map[uint32][]FlyHttp{}}
+var ackToRequest = AckToRequest{mp: map[uint32]FlyHttp{}}
+var ackToResponse = AckToResponse{mp: map[uint32][]FlyHttp{}}
 var seqToAck = SeqToAck{seqToAck: map[uint32]uint32{}}
 
-type AckRequest struct {
-	ackRequest map[uint32]FlyHttp
-	lock       sync.RWMutex
+// AckToRequest save the ACK and corresponding request in the HTTP request message
+type AckToRequest struct {
+	mp   map[uint32]FlyHttp
+	lock sync.RWMutex
 }
 
-func (a *AckRequest) Get(key uint32) (FlyHttp, bool) {
+func (a *AckToRequest) Get(key uint32) (FlyHttp, bool) {
 	a.lock.Lock()
 	defer a.lock.Unlock()
-	v, ok := a.ackRequest[key]
+	v, ok := a.mp[key]
 	return v, ok
 }
 
-func (a *AckRequest) List() map[uint32]FlyHttp {
+func (a *AckToRequest) List() map[uint32]FlyHttp {
 	a.lock.Lock()
 	defer a.lock.Unlock()
-	tmp, _ := json.Marshal(a.ackRequest)
+	tmp, _ := json.Marshal(a.mp)
 	ret := map[uint32]FlyHttp{}
 	json.Unmarshal(tmp, &ret)
 	return ret
 }
 
-func (a *AckRequest) Save(http FlyHttp) {
+func (a *AckToRequest) Save(http FlyHttp) {
 	a.lock.Lock()
 	defer a.lock.Unlock()
-	a.ackRequest[http.Ack] = http
+	a.mp[http.Ack] = http
 }
 
-func (a *AckRequest) Delete(key uint32) {
+func (a *AckToRequest) Delete(key uint32) {
 	a.lock.Lock()
 	defer a.lock.Unlock()
-	delete(a.ackRequest, key)
+	delete(a.mp, key)
 }
 
-type AckResponse struct {
-	ackResponse map[uint32][]FlyHttp
-	lock        sync.RWMutex
+// AckToResponse save the ACK and corresponding response in the HTTP response message
+type AckToResponse struct {
+	mp   map[uint32][]FlyHttp
+	lock sync.RWMutex
 }
 
-func (a *AckResponse) Get(key uint32) []FlyHttp {
+func (a *AckToResponse) Get(key uint32) []FlyHttp {
 	a.lock.Lock()
 	defer a.lock.Unlock()
-	return a.ackResponse[key]
+	return a.mp[key]
 }
 
-func (a *AckResponse) Save(http FlyHttp) {
+func (a *AckToResponse) Save(http FlyHttp) {
 	a.lock.Lock()
 	defer a.lock.Unlock()
-	a.ackResponse[http.Ack] = append(a.ackResponse[http.Ack], http)
+	a.mp[http.Ack] = append(a.mp[http.Ack], http)
 }
 
-func (a *AckResponse) Delete(key uint32) {
+func (a *AckToResponse) Delete(key uint32) {
 	a.lock.Lock()
 	defer a.lock.Unlock()
-	delete(a.ackResponse, key)
+	delete(a.mp, key)
 }
 
+// SeqToAck save the association between HTTP request and HTTP response message, Seq and Ack
 type SeqToAck struct {
 	seqToAck map[uint32]uint32
 	lock     sync.RWMutex
@@ -106,36 +109,34 @@ func MageHttp(ctx context.Context, save chan<- model) {
 		case <-ctx.Done():
 			break
 		case <-ticker:
-			request := ackRequest.List()
+			request := ackToRequest.List()
 			for k, v := range request {
 				ack, ok := seqToAck.Get(k)
 				if !ok {
 					continue
 				}
 
-				if Verbose {
-					log.Printf("req ack:%+v\n\tseq:%+v,ack:%+v,url:%+v,value:%+v\n", k, v.Seq, v.Ack, v.Data.RequestLine, v.Data.Headers)
-				}
-
-				flyHttps := ackResponse.Get(ack)
-				if flyHttps == nil {
+				flyResponses := ackToResponse.Get(ack)
+				if flyResponses == nil {
 					continue
 				}
 
 				if Verbose {
-					log.Printf("res ack:%+v\n", ack)
-					for _, v := range flyHttps {
-						log.Printf("\tseq:%+v,ack:%+v,value:%+v\n", v.Seq, v.Ack, v.Data.Headers)
+					log.Printf("[PRISM] request ack:%+v\n", k)
+					log.Printf("[PRISM] \tseq:%+v,ack:%+v,url:%+v,value:%+v\n", v.Seq, v.Ack, v.Data.RequestLine, v.Data.Headers)
+					log.Printf("[PRISM] response ack:%+v\n", ack)
+					for _, v := range flyResponses {
+						log.Printf("[PRISM] \tseq:%+v,ack:%+v,value:%+v\n", v.Seq, v.Ack, v.Data.Headers)
 					}
 				}
 
-				if !checkoutBodyLen(flyHttps) {
+				if !checkoutBodyLen(flyResponses) {
 					continue
 				}
-				save <- mergeOperation(v, flyHttps)
-				ackRequest.Delete(k)
+				save <- mergeOperation(v, flyResponses)
+				ackToRequest.Delete(k)
 				seqToAck.Delete(k)
-				ackResponse.Delete(ack)
+				ackToResponse.Delete(ack)
 			}
 		}
 	}
@@ -154,7 +155,7 @@ func checkoutBodyLen(flyHttps []FlyHttp) bool {
 	}
 
 	if Verbose {
-		log.Printf("maxBody:%+v,currentBody:%+v", maxBody, currentBody)
+		log.Printf("[PRISM] HTTP max body len:%+v, current body len:%+v", maxBody, currentBody)
 	}
 
 	if currentBody == maxBody {
@@ -175,15 +176,15 @@ func checkoutBodyLen(flyHttps []FlyHttp) bool {
 func mergeOperation(request FlyHttp, responses []FlyHttp) model {
 	fmt.Println()
 
-	log.Printf("request: %+v", request.Data.RequestLine)
+	log.Printf("[PRISM] HTTP request: %+v", request.Data.RequestLine)
 	if Debug {
 		printFormatHeader(request.Data.Headers)
-		log.Printf("request param: %+v", string(request.Data.Body))
+		log.Printf("[PRISM] HTTP request param: %+v", string(request.Data.Body))
 	}
 
 	urls, err := url.Parse(request.Data.RequestLine.URN)
 	if err != nil {
-		log.Printf("url.Parse error %+v", err.Error())
+		log.Printf("[ERROR] url parse (%+v)", err.Error())
 		return model{}
 	}
 	Parma, _ := url.ParseQuery(urls.RawQuery)
@@ -226,7 +227,7 @@ func mergeOperation(request FlyHttp, responses []FlyHttp) model {
 
 		if Verbose {
 			if _, ok := responseHeaders[ContentLength]; !ok {
-				log.Printf("response[%d] body: %+v", i, string(responses[i].Data.Body))
+				log.Printf("[PRISM] HTTP response[%d] body: %+v", i, string(responses[i].Data.Body))
 			}
 		}
 
@@ -254,7 +255,7 @@ func mergeOperation(request FlyHttp, responses []FlyHttp) model {
 				chunkData := make([]byte, chunkSize)
 				_, err = body.Read(chunkData)
 				if err != nil {
-					log.Printf("read chunked error %+v", err.Error())
+					log.Printf("[ERROR] read chunked (%+v)", err.Error())
 					continue
 				}
 				mergedBody.Write(chunkData)
@@ -269,7 +270,7 @@ func mergeOperation(request FlyHttp, responses []FlyHttp) model {
 	md.ResponseContextType = responseHeaders[ContentType]
 
 	if Debug {
-		log.Printf("response: %+v", responseLine.String())
+		log.Printf("[PRISM] HTTP response: %+v", responseLine.String())
 		printFormatHeader(responseHeaders)
 	}
 
@@ -277,20 +278,20 @@ func mergeOperation(request FlyHttp, responses []FlyHttp) model {
 		if encoding, ok := responseHeaders[ContentEncoding]; ok && encoding == "gzip" {
 			ret, err := parseGzip(mergedBody.Bytes())
 			if err != nil && err.Error() != "unexpected EOF" {
-				log.Printf("gzip decode err: %s", err.Error())
+				log.Printf("[PRISM] gzip decode (%s)", err.Error())
 			}
 			if contentType, ok := responseHeaders[ContentType]; ok &&
-				(strings.Contains(contentType, ContentTypePlain) ||
-					strings.Contains(contentType, ContentTypeJSON)) {
-				log.Printf("gzip response body: %+v", string(ret))
+				(strings.Contains(contentType, ContentTypePlain) || strings.Contains(contentType, ContentTypeJSON)) {
+
+				log.Printf("[PRISM] HTTP gzip response body: %+v", string(ret))
 				md.ResponseBody = string(ret)
 			}
 
 		} else {
 			if contentType, ok := responseHeaders[ContentType]; ok &&
-				(strings.Contains(contentType, ContentTypePlain) ||
-					strings.Contains(contentType, ContentTypeJSON)) {
-				log.Printf("response body: %+v", mergedBody.String())
+				(strings.Contains(contentType, ContentTypePlain) || strings.Contains(contentType, ContentTypeJSON)) {
+
+				log.Printf("[PRISM] HTTP response body: %+v", mergedBody.String())
 				md.ResponseBody = mergedBody.String()
 			}
 		}
@@ -318,9 +319,9 @@ func parseGzip(in []byte) ([]byte, error) {
 }
 
 func printFormatHeader(headers map[string]string) {
-	fmt.Printf("headers:\n")
+	log.Printf("[PRISM] HTTP headers:\n")
 	for k, v := range headers {
-		fmt.Printf("\t%s: %s\n", k, v)
+		log.Printf("[PRISM] \t\t%s: %s\n", k, v)
 	}
 }
 
