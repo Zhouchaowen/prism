@@ -6,6 +6,7 @@ STRIP ?= llvm-strip-14
 OBJCOPY ?= llvm-objcopy-14
 CFLAGS := -O2 -g -Wall -Werror $(CFLAGS)
 DEV ?= lo
+HOST ?= 10.2.0.105
 
 NAME ?= prism
 VERSION ?= v0.0.1
@@ -25,11 +26,11 @@ gen:
 	go generate ./...
 
 ps:
-	ssh root@10.2.0.105 "rm -rf /root/prism && mkdir prism"
-	scp -r * root@10.2.0.105:/root/prism/
+	ssh root@$(HOST) "rm -rf /root/prism && mkdir prism"
+	scp -r * root@$(HOST):/root/prism/
 
 pl:
-	scp -r root@10.2.0.105:/root/prism/* .
+	scp -r root@$(HOST):/root/prism/* .
 
 build: env gen
 	go mod tidy && go build -ldflags "-s -w" -o prism .

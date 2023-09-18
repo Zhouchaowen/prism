@@ -20,13 +20,16 @@
 #define DNS_HLEN sizeof(struct dns_hdr)
 
 #define HTTP_DATA_MIN_SIZE 91
-#define MAX_DATA_SIZE 4000
+#define MAX_DATA_SIZE 1024*4
+#define MAX_TRUNCATION 10
 enum tc_type { Egress, Ingress };
 
 struct http_data_event {
   enum tc_type type;
   __u8 data[MAX_DATA_SIZE];
   __u32 data_len;
+  __u32 max_len;
+  __u32 truncation;
 };
 
 // BPF ringbuf map
@@ -80,19 +83,12 @@ static __inline int capture_packets(struct __sk_buff *skb,enum tc_type type) {
     }
 
     __u32 len = (__u32)(data_end-data_start);
-    #ifdef DEBUG
-        bpf_printk("len: %d\n",len);
-    #endif
-
     if (len < 0) {
         return TC_ACT_OK;
     }
 
     // In theory this is the minimum packet size of an http packet
     if (len <= HTTP_DATA_MIN_SIZE){
-    #ifdef DEBUG
-        bpf_printk("---------no http---------\n");
-    #endif
         return TC_ACT_OK;
     }
 
@@ -110,32 +106,69 @@ static __inline int capture_packets(struct __sk_buff *skb,enum tc_type type) {
     }
 
     event->type = type;
+    event->max_len = len;
     // This is a max function, but it is written in such a way to keep older BPF verifiers happy.
-    event->data_len = (len < MAX_DATA_SIZE ? len : MAX_DATA_SIZE);
+    event->data_len = (len < MAX_DATA_SIZE ? len  : MAX_DATA_SIZE);
+    if (len >= MAX_DATA_SIZE){
+        event->truncation = 1;
+    }else{
+        event->truncation = 0;
+    }
 
     #ifdef DEBUG
-        bpf_printk("event->data_len: %d\n",event->data_len);
-        bpf_printk("event->data: %d\n",sizeof(event->data));
+        bpf_printk("event->max_len: %d,event->data_len: %d\n",event->max_len,event->data_len);
     #endif
 
     void *cursor = (void *)(long)skb->data;
-    int name_pos = 0;
-    for (int i = 0; i < MAX_DATA_SIZE; i++) {
-        // boundary judgment
-        if (cursor + 1 > data_end) {
-        #ifdef DEBUG
-          bpf_printk("copy data to boundary");
-        #endif
-          break;
-        }
+    __u32 name_pos = len;
+    __u32 offset = 0;
+    for (int i = 0; i < MAX_TRUNCATION; i++) {
+        offset = i*MAX_DATA_SIZE;
+        if (name_pos >= MAX_DATA_SIZE){
+            bpf_skb_load_bytes(skb,offset,&event->data,MAX_DATA_SIZE);
+            event->data_len = MAX_DATA_SIZE;
+            #ifdef DEBUG
+                bpf_printk("\t submit data_len: %d",event->data_len);
+            #endif
+            bpf_ringbuf_submit(event, 0);
 
-        event->data[name_pos] = *(char *)(cursor);
-        cursor++;
-        name_pos++;
+            name_pos = name_pos-MAX_DATA_SIZE;
+
+            event = bpf_ringbuf_reserve(&http_events, sizeof(struct http_data_event), 0);
+            if (!event) {
+            #ifdef DEBUG
+                bpf_printk("---------no memory---------");
+            #endif
+                return 0;
+            }
+            event->type = type;
+            event->data_len = 0;
+            event->max_len = len;
+            event->truncation = 1;
+        }else{
+            break;
+        }
     }
 
-    bpf_ringbuf_submit(event, 0);
+    cursor = cursor+offset;
+    name_pos = 0;
+    for (int i = 0; i < MAX_DATA_SIZE; i++) {
+       // boundary judgment
+       if (cursor + 1 > data_end) {
+         break;
+       }
 
+       event->data[name_pos] = *(char *)(cursor);
+       cursor++;
+       name_pos++;
+    }
+    event->data_len = name_pos;
+
+    #ifdef DEBUG
+        bpf_printk("\t submit data_len: %d\n",event->data_len);
+    #endif
+
+    bpf_ringbuf_submit(event, 0);
     return TC_ACT_OK;
 }
 

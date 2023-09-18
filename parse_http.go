@@ -24,8 +24,9 @@ const (
 	ContentTypeForm              = "application/x-www-form-urlencoded"
 	ContentTypeMultipartPOSTForm = "multipart/form-data"
 
-	XForwardedFor = "X-Forwarded-For"
-	HTTP          = "HTTP"
+	XForwardedFor    = "X-Forwarded-For"
+	TransferEncoding = "Transfer-Encoding"
+	HTTP             = "HTTP"
 )
 
 func ParseHttp(data []byte) error {

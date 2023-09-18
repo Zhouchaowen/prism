@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -98,50 +99,58 @@ func (a *SeqToAck) Delete(key uint32) {
 	delete(a.seqToAck, key)
 }
 
-func MageHttp(save chan<- model) {
-	request := ackRequest.List()
-	for k, v := range request {
-		ack, ok := seqToAck.Get(k)
-		if !ok {
-			continue
-		}
+func MageHttp(ctx context.Context, save chan<- model) {
+	ticker := time.Tick(3 * time.Second)
+	for {
+		select {
+		case <-ctx.Done():
+			break
+		case <-ticker:
+			request := ackRequest.List()
+			for k, v := range request {
+				ack, ok := seqToAck.Get(k)
+				if !ok {
+					continue
+				}
 
-		if Verbose {
-			log.Printf("\treq ack:%+v\n\t\tseq:%+v,ack:%+v,url:%+v,value:%+v\n", k, v.Seq, v.Ack, v.Data.RequestLine, v.Data.Headers)
-		}
+				if Verbose {
+					log.Printf("req ack:%+v\n\tseq:%+v,ack:%+v,url:%+v,value:%+v\n", k, v.Seq, v.Ack, v.Data.RequestLine, v.Data.Headers)
+				}
 
-		flyHttps := ackResponse.Get(ack)
-		if flyHttps == nil {
-			continue
-		}
-		if Verbose {
-			log.Printf("\tres ack:%+v\n", ack)
-			for _, v := range flyHttps {
-				log.Printf("\t\tseq:%+v,ack:%+v,value:%+v\n", v.Seq, v.Ack, v.Data.Headers)
+				flyHttps := ackResponse.Get(ack)
+				if flyHttps == nil {
+					continue
+				}
+
+				if Verbose {
+					log.Printf("res ack:%+v\n", ack)
+					for _, v := range flyHttps {
+						log.Printf("\tseq:%+v,ack:%+v,value:%+v\n", v.Seq, v.Ack, v.Data.Headers)
+					}
+				}
+
+				if !checkoutBodyLen(flyHttps) {
+					continue
+				}
+				save <- mergeOperation(v, flyHttps)
+				ackRequest.Delete(k)
+				seqToAck.Delete(k)
+				ackResponse.Delete(ack)
 			}
 		}
-
-		if !checkoutBodyLen(flyHttps) {
-			continue
-		}
-
-		save <- mergeReqAndRes(v, flyHttps)
-		ackRequest.Delete(k)
-		seqToAck.Delete(k)
-		ackResponse.Delete(ack)
 	}
 }
 
 func checkoutBodyLen(flyHttps []FlyHttp) bool {
 	var maxBody int = 0
 	var currentBody int = -1
-	var lastTime time.Time
+	var lastTime = flyHttps[len(flyHttps)-1].CreateTime
+	var lastBody = flyHttps[len(flyHttps)-1].Data.Body
 	for i, _ := range flyHttps {
 		if maxBody == 0 {
 			maxBody, _ = strconv.Atoi(flyHttps[i].Data.Headers[ContentLength])
 		}
 		currentBody += len(flyHttps[i].Data.Body)
-		lastTime = flyHttps[i].CreateTime
 	}
 
 	if Verbose {
@@ -152,6 +161,10 @@ func checkoutBodyLen(flyHttps []FlyHttp) bool {
 		return true
 	}
 
+	if bytes.HasSuffix(lastBody, []byte("\r\n0")) {
+		return true
+	}
+
 	if time.Since(lastTime).Seconds() > 10 {
 		return true
 	}
@@ -159,7 +172,7 @@ func checkoutBodyLen(flyHttps []FlyHttp) bool {
 	return false
 }
 
-func mergeReqAndRes(request FlyHttp, responses []FlyHttp) model {
+func mergeOperation(request FlyHttp, responses []FlyHttp) model {
 	fmt.Println()
 
 	log.Printf("request: %+v", request.Data.RequestLine)
@@ -171,6 +184,7 @@ func mergeReqAndRes(request FlyHttp, responses []FlyHttp) model {
 	urls, err := url.Parse(request.Data.RequestLine.URN)
 	if err != nil {
 		log.Printf("url.Parse error %+v", err.Error())
+		return model{}
 	}
 	Parma, _ := url.ParseQuery(urls.RawQuery)
 
@@ -196,7 +210,9 @@ func mergeReqAndRes(request FlyHttp, responses []FlyHttp) model {
 	var isExit = map[uint32]struct{}{}
 	var responseLine ResponseLine
 	var responseHeaders map[string]string
-	var responseBody []byte
+
+	// Create a buffer to store the merged response body
+	var mergedBody bytes.Buffer
 	for i, v := range responses {
 		if _, ok := isExit[v.Seq]; ok {
 			continue
@@ -207,12 +223,46 @@ func mergeReqAndRes(request FlyHttp, responses []FlyHttp) model {
 			responseLine = responses[i].Data.ResponseLine
 			responseHeaders = responses[i].Data.Headers
 		}
+
 		if Verbose {
 			if _, ok := responseHeaders[ContentLength]; !ok {
 				log.Printf("response[%d] body: %+v", i, string(responses[i].Data.Body))
 			}
 		}
-		responseBody = append(responseBody, responses[i].Data.Body...)
+
+		if Encoding, ok := responseHeaders[TransferEncoding]; ok && Encoding == "chunked" {
+			body := bytes.NewReader(responses[i].Data.Body)
+
+			// Try reading a block and get the total data length
+			var chunkSize int
+			_, err := fmt.Fscanf(body, "%x\r\n", &chunkSize)
+			if err != nil {
+				// Handle irregular data
+				tmp := bytes.TrimSuffix(responses[i].Data.Body, []byte("\r\n\r\n"))
+				tmp = bytes.TrimSuffix(responses[i].Data.Body, []byte("\r\n0"))
+				mergedBody.Write(tmp)
+				continue
+			}
+
+			// Process the first piece of data
+			if chunkSize > len(responses[i].Data.Body) {
+				tmp, _ := io.ReadAll(body)
+				tmp = bytes.TrimSuffix(tmp, []byte("\r\n\r\n"))
+				mergedBody.Write(tmp)
+			} else {
+				// Handle situations where there is only one piece of data
+				chunkData := make([]byte, chunkSize)
+				_, err = body.Read(chunkData)
+				if err != nil {
+					log.Printf("read chunked error %+v", err.Error())
+					continue
+				}
+				mergedBody.Write(chunkData)
+			}
+
+		} else if len(responses[i].Data.Body) > 0 {
+			mergedBody.Write(responses[i].Data.Body)
+		}
 	}
 
 	md.ResponseStatus = responseLine.Status
@@ -225,14 +275,13 @@ func mergeReqAndRes(request FlyHttp, responses []FlyHttp) model {
 
 	if v, ok := responseHeaders[ContentType]; ok && !strings.Contains(v, ContentTypeHTML) {
 		if encoding, ok := responseHeaders[ContentEncoding]; ok && encoding == "gzip" {
-			ret, err := parseGzip(responseBody)
+			ret, err := parseGzip(mergedBody.Bytes())
 			if err != nil && err.Error() != "unexpected EOF" {
 				log.Printf("gzip decode err: %s", err.Error())
 			}
 			if contentType, ok := responseHeaders[ContentType]; ok &&
 				(strings.Contains(contentType, ContentTypePlain) ||
 					strings.Contains(contentType, ContentTypeJSON)) {
-
 				log.Printf("gzip response body: %+v", string(ret))
 				md.ResponseBody = string(ret)
 			}
@@ -241,9 +290,8 @@ func mergeReqAndRes(request FlyHttp, responses []FlyHttp) model {
 			if contentType, ok := responseHeaders[ContentType]; ok &&
 				(strings.Contains(contentType, ContentTypePlain) ||
 					strings.Contains(contentType, ContentTypeJSON)) {
-
-				log.Printf("response body: %+v", string(responseBody))
-				md.ResponseBody = string(responseBody)
+				log.Printf("response body: %+v", mergedBody.String())
+				md.ResponseBody = mergedBody.String()
 			}
 		}
 	}

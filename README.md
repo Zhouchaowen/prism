@@ -4,7 +4,7 @@ Prism is an eBPF-Based interface generator that captures the HTTP traffic of Ing
 
 # Run
 
-- Kernel >= 5.8.0
+- Kernel >= 5.4.0
 
 ## operating run
 
@@ -24,7 +24,7 @@ docker run --net host --privileged --name prism -itd zmosquito/prism:v0.0.1 ./pr
 
 ## require
 
-- Kernel >= 5.8.0 
+- Kernel >= 5.4.0 
 - LLvm >= 14
 - Clang >= 14
 - Golang >= 1.18
