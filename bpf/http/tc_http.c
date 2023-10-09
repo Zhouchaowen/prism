@@ -119,7 +119,6 @@ static __inline int capture_packets(struct __sk_buff *skb,enum tc_type type) {
         bpf_printk("event->max_len: %d,event->data_len: %d\n",event->max_len,event->data_len);
     #endif
 
-    void *cursor = (void *)(long)skb->data;
     __u32 name_pos = len;
     __u32 offset = 0;
     for (int i = 0; i < MAX_TRUNCATION; i++) {
@@ -150,6 +149,7 @@ static __inline int capture_packets(struct __sk_buff *skb,enum tc_type type) {
         }
     }
 
+    void *cursor = (void *)(long)skb->data;
     cursor = cursor+offset;
     name_pos = 0;
     for (int i = 0; i < MAX_DATA_SIZE; i++) {

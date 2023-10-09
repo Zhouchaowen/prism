@@ -17,7 +17,7 @@ prism -n <device_name>
 ## docker run
 
 ```bash
-docker run --net host --privileged --name prism -itd zmosquito/prism:v0.0.1 ./prism -n <device_name>
+docker run --net host --privileged --name prism -itd zmosquito/prism:v0.0.2 ./prism -n <device_name>
 ```
 
 # How to compile
